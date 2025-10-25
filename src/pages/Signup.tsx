@@ -8,25 +8,39 @@ import { CheckSquare } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 
-const Login = () => {
+const Signup = () => {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!email || !password) {
-      toast.error("Please enter your credentials");
+    if (!email || !password || !confirmPassword) {
+      toast.error("Please fill in all fields");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error("Password must be at least 6 characters");
       return;
     }
 
     setLoading(true);
 
-    const { error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/home`
+      }
     });
 
     setLoading(false);
@@ -34,7 +48,7 @@ const Login = () => {
     if (error) {
       toast.error(error.message);
     } else {
-      toast.success("Welcome back!");
+      toast.success("Account created successfully!");
       navigate("/home");
     }
   };
@@ -48,13 +62,13 @@ const Login = () => {
               <CheckSquare className="h-8 w-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl font-semibold">Welcome to To Do Flow</CardTitle>
+          <CardTitle className="text-2xl font-semibold">Join To Do Flow</CardTitle>
           <CardDescription className="text-base">
-            Sign in to manage your tasks with elegance
+            Create an account to start managing your tasks
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleLogin} className="space-y-5">
+          <form onSubmit={handleSignup} className="space-y-5">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
               <Input
@@ -64,6 +78,7 @@ const Login = () => {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-11 transition-smooth focus:shadow-soft"
+                disabled={loading}
               />
             </div>
             <div className="space-y-2">
@@ -78,18 +93,30 @@ const Login = () => {
                 disabled={loading}
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirm-password" className="text-sm font-medium">Confirm Password</Label>
+              <Input
+                id="confirm-password"
+                type="password"
+                placeholder="••••••••"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="h-11 transition-smooth focus:shadow-soft"
+                disabled={loading}
+              />
+            </div>
             <Button 
               type="submit" 
               className="w-full h-11 font-medium transition-smooth hover:shadow-soft"
               disabled={loading}
             >
-              {loading ? "Signing In..." : "Sign In"}
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
           <div className="mt-6 text-center text-sm text-muted-foreground">
-            Don't have an account?{" "}
-            <Link to="/signup" className="text-primary hover:underline font-medium">
-              Sign up
+            Already have an account?{" "}
+            <Link to="/login" className="text-primary hover:underline font-medium">
+              Sign in
             </Link>
           </div>
         </CardContent>
@@ -98,4 +125,4 @@ const Login = () => {
   );
 };
 
-export default Login;
+export default Signup;
