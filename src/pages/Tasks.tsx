@@ -1,45 +1,88 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Edit2, Trash2, Plus } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { Edit2, Trash2, Plus, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Task {
-  id: number;
+  id: string;
   title: string;
-  description: string;
+  description: string | null;
   completed: boolean;
-  priority: "high" | "medium" | "low";
+  priority: string;
   deadline: string;
 }
 
 const Tasks = () => {
   const navigate = useNavigate();
-  const [tasks, setTasks] = useState<Task[]>([
-    { id: 1, title: "Review Q4 reports", description: "Analyze quarterly performance", completed: false, priority: "high", deadline: "2025-10-26" },
-    { id: 2, title: "Team meeting prep", description: "Prepare presentation slides", completed: false, priority: "medium", deadline: "2025-10-25" },
-    { id: 3, title: "Client presentation", description: "Present new features", completed: false, priority: "high", deadline: "2025-10-28" },
-    { id: 4, title: "Update documentation", description: "API docs update", completed: true, priority: "low", deadline: "2025-10-24" },
-  ]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const toggleComplete = (id: number) => {
-    setTasks(tasks.map(task => 
-      task.id === id ? { ...task, completed: !task.completed } : task
-    ));
-    toast.success("Task status updated");
+  useEffect(() => {
+    const checkAuthAndFetch = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        navigate("/login");
+        return;
+      }
+      fetchTasks();
+    };
+    checkAuthAndFetch();
+  }, [navigate]);
+
+  const fetchTasks = async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("tasks")
+      .select("*")
+      .order("deadline", { ascending: true });
+
+    if (error) {
+      toast.error("Failed to load tasks");
+      console.error(error);
+    } else {
+      setTasks(data || []);
+    }
+    setLoading(false);
   };
 
-  const deleteTask = (id: number) => {
-    setTasks(tasks.filter(task => task.id !== id));
-    toast.success("Task deleted");
+  const toggleComplete = async (id: string, currentStatus: boolean) => {
+    const { error } = await supabase
+      .from("tasks")
+      .update({ completed: !currentStatus })
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Failed to update task");
+    } else {
+      setTasks(tasks.map(task =>
+        task.id === id ? { ...task, completed: !currentStatus } : task
+      ));
+      toast.success("Task status updated");
+    }
+  };
+
+  const deleteTask = async (id: string) => {
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", id);
+
+    if (error) {
+      toast.error("Failed to delete task");
+    } else {
+      setTasks(tasks.filter(task => task.id !== id));
+      toast.success("Task deleted");
+    }
   };
 
   const getPriorityColor = (priority: string) => {
-    switch(priority) {
+    switch (priority) {
       case "high": return "destructive";
       case "medium": return "default";
       case "low": return "secondary";
@@ -47,10 +90,21 @@ const Tasks = () => {
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Navbar />
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
-      
+
       <main className="container mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -63,50 +117,60 @@ const Tasks = () => {
           </Button>
         </div>
 
-        <div className="space-y-4">
-          {tasks.map(task => (
-            <Card key={task.id} className="shadow-soft border-border/50 transition-smooth hover:shadow-elegant">
-              <CardContent className="pt-6">
-                <div className="flex items-start gap-4">
-                  <Checkbox
-                    checked={task.completed}
-                    onCheckedChange={() => toggleComplete(task.id)}
-                    className="mt-1"
-                  />
-                  <div className="flex-1">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className={`font-semibold text-lg ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                          {task.title}
-                        </h3>
-                        <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+        {tasks.length === 0 ? (
+          <Card className="shadow-soft border-border/50 p-8 text-center">
+            <p className="text-muted-foreground">No tasks yet. Create your first task!</p>
+            <Button onClick={() => navigate("/add-task")} className="mt-4">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Task
+            </Button>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {tasks.map(task => (
+              <Card key={task.id} className="shadow-soft border-border/50 transition-smooth hover:shadow-elegant">
+                <CardContent className="pt-6">
+                  <div className="flex items-start gap-4">
+                    <Checkbox
+                      checked={task.completed}
+                      onCheckedChange={() => toggleComplete(task.id, task.completed)}
+                      className="mt-1"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-start justify-between mb-2">
+                        <div>
+                          <h3 className={`font-semibold text-lg ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
+                            {task.title}
+                          </h3>
+                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={getPriorityColor(task.priority) as any} className="capitalize">
+                            {task.priority}
+                          </Badge>
+                          <Button variant="ghost" size="icon" className="transition-smooth hover:bg-secondary">
+                            <Edit2 className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => deleteTask(task.id)}
+                            className="transition-smooth hover:bg-destructive/10 hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={getPriorityColor(task.priority)} className="capitalize">
-                          {task.priority}
-                        </Badge>
-                        <Button variant="ghost" size="icon" className="transition-smooth hover:bg-secondary">
-                          <Edit2 className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => deleteTask(task.id)}
-                          className="transition-smooth hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <span>Due: {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>Due: {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                     </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
       </main>
     </div>
   );
