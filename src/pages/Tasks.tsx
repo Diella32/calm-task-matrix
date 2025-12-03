@@ -148,7 +148,12 @@ const Tasks = () => {
                           <Badge variant={getPriorityColor(task.priority) as any} className="capitalize">
                             {task.priority}
                           </Badge>
-                          <Button variant="ghost" size="icon" className="transition-smooth hover:bg-secondary">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => navigate(`/edit-task/${task.id}`)}
+                            className="transition-smooth hover:bg-secondary"
+                          >
                             <Edit2 className="h-4 w-4" />
                           </Button>
                           <Button
