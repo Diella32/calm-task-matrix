@@ -9,57 +9,82 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
+import { Loader2, ArrowLeft, Trash2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { PageHeader } from "@/components/PageHeader";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+
+const categories = [
+  { value: "general", label: "General" },
+  { value: "work", label: "Work" },
+  { value: "personal", label: "Personal" },
+  { value: "health", label: "Health" },
+  { value: "finance", label: "Finance" },
+  { value: "learning", label: "Learning" },
+];
 
 const EditTask = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
+  const { loading: authLoading } = useAuth();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("medium");
+  const [category, setCategory] = useState("general");
   const [deadline, setDeadline] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    const checkAuthAndFetch = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/login");
+    const fetchTask = async () => {
+      if (!id) return;
+      
+      const { data, error } = await supabase
+        .from("tasks")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error || !data) {
+        toast.error("Task not found");
+        navigate("/tasks");
         return;
       }
-      fetchTask();
+
+      setTitle(data.title);
+      setDescription(data.description || "");
+      setPriority(data.priority);
+      setCategory(data.category || "general");
+      setDeadline(data.deadline);
+      setLoading(false);
     };
-    checkAuthAndFetch();
-  }, [navigate, id]);
 
-  const fetchTask = async () => {
-    if (!id) return;
-    
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      toast.error("Task not found");
-      navigate("/tasks");
-      return;
+    if (!authLoading) {
+      fetchTask();
     }
-
-    setTitle(data.title);
-    setDescription(data.description || "");
-    setPriority(data.priority);
-    setDeadline(data.deadline);
-    setLoading(false);
-  };
+  }, [id, navigate, authLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!title || !deadline) {
-      toast.error("Please fill in title and deadline");
+    if (!title.trim()) {
+      toast.error("Please enter a task title");
+      return;
+    }
+
+    if (!deadline) {
+      toast.error("Please select a deadline");
       return;
     }
 
@@ -67,9 +92,10 @@ const EditTask = () => {
     const { error } = await supabase
       .from("tasks")
       .update({
-        title,
-        description: description || null,
+        title: title.trim(),
+        description: description.trim() || null,
         priority,
+        category,
         deadline,
       })
       .eq("id", id);
@@ -85,7 +111,24 @@ const EditTask = () => {
     }
   };
 
-  if (loading) {
+  const handleDelete = async () => {
+    setDeleting(true);
+    const { error } = await supabase
+      .from("tasks")
+      .delete()
+      .eq("id", id);
+
+    setDeleting(false);
+
+    if (error) {
+      toast.error("Failed to delete task");
+    } else {
+      toast.success("Task deleted");
+      navigate("/tasks");
+    }
+  };
+
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
@@ -100,27 +143,68 @@ const EditTask = () => {
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container mx-auto px-6 py-8">
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="max-w-2xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-3xl font-semibold text-foreground mb-2">Edit Task</h1>
-            <p className="text-muted-foreground">Update your task details</p>
-          </div>
+          <Button 
+            variant="ghost" 
+            onClick={() => navigate("/tasks")} 
+            className="mb-4 gap-2 -ml-2 text-muted-foreground hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to tasks
+          </Button>
 
-          <Card className="shadow-elegant border-border/50">
-            <CardHeader>
-              <CardTitle>Task Details</CardTitle>
+          <PageHeader 
+            title="Edit Task" 
+            description="Update your task details"
+            action={
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="outline" 
+                    className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span className="hidden sm:inline">Delete</span>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete this task?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This action cannot be undone. This will permanently delete your task.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      onClick={handleDelete}
+                      className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    >
+                      {deleting ? "Deleting..." : "Delete"}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            }
+          />
+
+          <Card className="shadow-elegant border-border/50 animate-fade-in">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Task Details</CardTitle>
             </CardHeader>
             <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="title" className="text-sm font-medium">Title *</Label>
+                  <Label htmlFor="title" className="text-sm font-medium">
+                    Title <span className="text-destructive">*</span>
+                  </Label>
                   <Input
                     id="title"
-                    placeholder="Enter task title"
+                    placeholder="What needs to be done?"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    className="transition-smooth focus:shadow-soft"
+                    className="h-11 transition-smooth focus:shadow-soft"
                   />
                 </div>
 
@@ -128,18 +212,34 @@ const EditTask = () => {
                   <Label htmlFor="description" className="text-sm font-medium">Description</Label>
                   <Textarea
                     id="description"
-                    placeholder="Describe your task in detail"
+                    placeholder="Add more details about this task..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="min-h-32 transition-smooth focus:shadow-soft"
+                    className="min-h-24 transition-smooth focus:shadow-soft resize-none"
                   />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="category" className="text-sm font-medium">Category</Label>
+                    <Select value={category} onValueChange={setCategory}>
+                      <SelectTrigger className="h-11 transition-smooth focus:shadow-soft">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map(cat => (
+                          <SelectItem key={cat.value} value={cat.value}>
+                            {cat.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   <div className="space-y-2">
                     <Label htmlFor="priority" className="text-sm font-medium">Priority</Label>
                     <Select value={priority} onValueChange={setPriority}>
-                      <SelectTrigger className="transition-smooth focus:shadow-soft">
+                      <SelectTrigger className="h-11 transition-smooth focus:shadow-soft">
                         <SelectValue placeholder="Select priority" />
                       </SelectTrigger>
                       <SelectContent>
@@ -149,21 +249,27 @@ const EditTask = () => {
                       </SelectContent>
                     </Select>
                   </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="deadline" className="text-sm font-medium">Deadline *</Label>
-                    <Input
-                      id="deadline"
-                      type="date"
-                      value={deadline}
-                      onChange={(e) => setDeadline(e.target.value)}
-                      className="transition-smooth focus:shadow-soft"
-                    />
-                  </div>
                 </div>
 
-                <div className="flex gap-4 pt-4">
-                  <Button type="submit" disabled={saving} className="flex-1 transition-smooth hover:shadow-soft">
+                <div className="space-y-2">
+                  <Label htmlFor="deadline" className="text-sm font-medium">
+                    Deadline <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="deadline"
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    className="h-11 transition-smooth focus:shadow-soft"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-4">
+                  <Button 
+                    type="submit" 
+                    disabled={saving} 
+                    className="flex-1 h-11 font-medium shadow-soft hover:shadow-elegant"
+                  >
                     {saving ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -177,7 +283,7 @@ const EditTask = () => {
                     type="button"
                     variant="outline"
                     onClick={() => navigate("/tasks")}
-                    className="flex-1 transition-smooth"
+                    className="flex-1 h-11"
                   >
                     Cancel
                   </Button>

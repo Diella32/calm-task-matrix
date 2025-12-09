@@ -1,96 +1,60 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Edit2, Trash2, Plus, Loader2 } from "lucide-react";
-import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  completed: boolean;
-  priority: string;
-  deadline: string;
-}
+import { Plus, Loader2 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { useTasks } from "@/hooks/useTasks";
+import { TaskCard } from "@/components/TaskCard";
+import { TaskFilters } from "@/components/TaskFilters";
+import { EmptyState } from "@/components/EmptyState";
+import { PageHeader } from "@/components/PageHeader";
 
 const Tasks = () => {
   const navigate = useNavigate();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { loading: authLoading } = useAuth();
+  const { tasks, loading: tasksLoading, toggleComplete, deleteTask } = useTasks();
+  
+  const [searchQuery, setSearchQuery] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
 
-  useEffect(() => {
-    const checkAuthAndFetch = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate("/login");
-        return;
-      }
-      fetchTasks();
-    };
-    checkAuthAndFetch();
-  }, [navigate]);
+  const today = new Date().toISOString().split('T')[0];
 
-  const fetchTasks = async () => {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("tasks")
-      .select("*")
-      .order("deadline", { ascending: true });
+  const filteredTasks = useMemo(() => {
+    return tasks.filter(task => {
+      // Search filter
+      const matchesSearch = 
+        task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (task.description?.toLowerCase().includes(searchQuery.toLowerCase()));
+      
+      // Priority filter
+      const matchesPriority = priorityFilter === "all" || task.priority === priorityFilter;
+      
+      // Category filter
+      const matchesCategory = categoryFilter === "all" || task.category === categoryFilter;
+      
+      // Status filter
+      let matchesStatus = true;
+      if (statusFilter === "active") matchesStatus = !task.completed;
+      if (statusFilter === "completed") matchesStatus = task.completed;
+      if (statusFilter === "overdue") matchesStatus = !task.completed && task.deadline < today;
+      
+      return matchesSearch && matchesPriority && matchesCategory && matchesStatus;
+    });
+  }, [tasks, searchQuery, priorityFilter, categoryFilter, statusFilter, today]);
 
-    if (error) {
-      toast.error("Failed to load tasks");
-      console.error(error);
-    } else {
-      setTasks(data || []);
-    }
-    setLoading(false);
+  const hasActiveFilters = searchQuery || priorityFilter !== "all" || categoryFilter !== "all" || statusFilter !== "all";
+
+  const clearFilters = () => {
+    setSearchQuery("");
+    setPriorityFilter("all");
+    setCategoryFilter("all");
+    setStatusFilter("all");
   };
 
-  const toggleComplete = async (id: string, currentStatus: boolean) => {
-    const { error } = await supabase
-      .from("tasks")
-      .update({ completed: !currentStatus })
-      .eq("id", id);
-
-    if (error) {
-      toast.error("Failed to update task");
-    } else {
-      setTasks(tasks.map(task =>
-        task.id === id ? { ...task, completed: !currentStatus } : task
-      ));
-      toast.success("Task status updated");
-    }
-  };
-
-  const deleteTask = async (id: string) => {
-    const { error } = await supabase
-      .from("tasks")
-      .delete()
-      .eq("id", id);
-
-    if (error) {
-      toast.error("Failed to delete task");
-    } else {
-      setTasks(tasks.filter(task => task.id !== id));
-      toast.success("Task deleted");
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case "high": return "destructive";
-      case "medium": return "default";
-      case "low": return "secondary";
-      default: return "default";
-    }
-  };
-
-  if (loading) {
+  if (authLoading || tasksLoading) {
     return (
       <div className="min-h-screen bg-background">
         <Navbar />
@@ -101,78 +65,66 @@ const Tasks = () => {
     );
   }
 
+  const activeTasks = tasks.filter(t => !t.completed);
+  const getEmptyStateType = () => {
+    if (tasks.length === 0) return "no-tasks";
+    if (filteredTasks.length === 0 && hasActiveFilters) return "no-results";
+    if (activeTasks.length === 0 && tasks.length > 0) return "all-done";
+    return "no-results";
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Navbar />
 
-      <main className="container mx-auto px-6 py-8">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-semibold text-foreground mb-2">All Tasks</h1>
-            <p className="text-muted-foreground">Manage and organize your tasks</p>
-          </div>
-          <Button onClick={() => navigate("/add-task")} className="gap-2 transition-smooth hover:shadow-soft">
-            <Plus className="h-4 w-4" />
-            Add New Task
-          </Button>
-        </div>
-
-        {tasks.length === 0 ? (
-          <Card className="shadow-soft border-border/50 p-8 text-center">
-            <p className="text-muted-foreground">No tasks yet. Create your first task!</p>
-            <Button onClick={() => navigate("/add-task")} className="mt-4">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Task
+      <main className="container mx-auto px-4 sm:px-6 py-6 sm:py-8">
+        <PageHeader 
+          title="All Tasks" 
+          description={`${tasks.length} total · ${activeTasks.length} active`}
+          action={
+            <Button onClick={() => navigate("/add-task")} className="gap-2 shadow-soft hover:shadow-elegant">
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">New Task</span>
             </Button>
-          </Card>
+          }
+        />
+
+        {tasks.length > 0 && (
+          <div className="mb-6 animate-fade-in">
+            <TaskFilters
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              priorityFilter={priorityFilter}
+              onPriorityChange={setPriorityFilter}
+              categoryFilter={categoryFilter}
+              onCategoryChange={setCategoryFilter}
+              statusFilter={statusFilter}
+              onStatusChange={setStatusFilter}
+              onClearFilters={clearFilters}
+              hasActiveFilters={hasActiveFilters}
+            />
+          </div>
+        )}
+
+        {filteredTasks.length === 0 ? (
+          <EmptyState 
+            type={getEmptyStateType()} 
+            onClearFilters={hasActiveFilters ? clearFilters : undefined}
+          />
         ) : (
-          <div className="space-y-4">
-            {tasks.map(task => (
-              <Card key={task.id} className="shadow-soft border-border/50 transition-smooth hover:shadow-elegant">
-                <CardContent className="pt-6">
-                  <div className="flex items-start gap-4">
-                    <Checkbox
-                      checked={task.completed}
-                      onCheckedChange={() => toggleComplete(task.id, task.completed)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1">
-                      <div className="flex items-start justify-between mb-2">
-                        <div>
-                          <h3 className={`font-semibold text-lg ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground'}`}>
-                            {task.title}
-                          </h3>
-                          <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge variant={getPriorityColor(task.priority) as any} className="capitalize">
-                            {task.priority}
-                          </Badge>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => navigate(`/edit-task/${task.id}`)}
-                            className="transition-smooth hover:bg-secondary"
-                          >
-                            <Edit2 className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => deleteTask(task.id)}
-                            className="transition-smooth hover:bg-destructive/10 hover:text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span>Due: {new Date(task.deadline).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+          <div className="space-y-3">
+            {filteredTasks.map((task, index) => (
+              <div 
+                key={task.id} 
+                className="animate-fade-in"
+                style={{ animationDelay: `${Math.min(index * 50, 300)}ms` }}
+              >
+                <TaskCard
+                  task={task}
+                  onToggleComplete={toggleComplete}
+                  onDelete={deleteTask}
+                />
+              </div>
             ))}
           </div>
         )}
